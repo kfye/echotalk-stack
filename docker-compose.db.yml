@@ -1,0 +1,85 @@
+# EchoTalk 精简栈：只起 MySQL 8 + Redis（自建数据资源）
+# 适配单台 2核2G：限内存、调瘦、仅内网、数据持久化。
+# 部署：Portainer → Stacks → Add stack → Web editor 粘贴本文件；
+#       Environment variables 区填 MYSQL_* 四项（见下方注释）。
+#
+# 需要的环境变量：
+#   MYSQL_ROOT_PASSWORD  MySQL root 密码（强密码）
+#   MYSQL_DATABASE       初始库名，建议 echotalk
+#   MYSQL_USER           应用账号
+#   MYSQL_PASSWORD       应用账号密码（强密码）
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: echotalk-mysql
+    restart: unless-stopped
+    # 不映射到公网；仅在 echotalk 内网可达（安全组只放 80/443）
+    expose:
+      - "3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    # 2核2G 调瘦（防 OOM）：缓冲池压到 128M、关 performance_schema、连接数调小
+    command:
+      - --innodb-buffer-pool-size=128M
+      - --performance-schema=OFF
+      - --max-connections=50
+      - --innodb-flush-log-at-trx-commit=2
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - echotalk
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 512m
+    mem_reservation: 256m
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: echotalk-redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+    # 限内存 + LRU 淘汰 + 轻量 AOF 持久化
+    command:
+      - redis-server
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+    volumes:
+      - redis-data:/data
+    networks:
+      - echotalk
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    mem_limit: 200m
+    mem_reservation: 96m
+
+networks:
+  echotalk:
+    # 固定网络名，便于后续 backend 容器以 external 方式加入同一网络
+    name: echotalk
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
