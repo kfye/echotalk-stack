@@ -1,0 +1,9 @@
+# MySQL 8 — 2核2G 小机器补充调瘦（与 compose command 互补；防 OOM）
+# 注：核心参数已在 docker-compose.yml 的 command 里设置，此文件用于追加细项。
+[mysqld]
+innodb_log_buffer_size = 8M
+tmp_table_size = 16M
+max_heap_table_size = 16M
+sort_buffer_size = 1M
+join_buffer_size = 1M
+default-time-zone = '+08:00'
