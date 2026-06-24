@@ -1,9 +1,16 @@
-# MySQL 8 — 2核2G 小机器补充调瘦（与 compose command 互补；防 OOM）
-# 注：核心参数已在 docker-compose.yml 的 command 里设置，此文件用于追加细项。
+# 【参考留档 · 当前未挂载】
+# 为避开 Portainer 单文件挂载坑，MySQL 调优已全部写进 docker-compose.yml 的 command。
+# 本文件仅作可读性参考；若改为挂载方式，可把下列项放回此文件并在 compose 加 conf.d 挂载。
 [mysqld]
+innodb_buffer_pool_size = 128M
+performance_schema = OFF
+max_connections = 50
+innodb_flush_log_at_trx_commit = 2
 innodb_log_buffer_size = 8M
 tmp_table_size = 16M
 max_heap_table_size = 16M
 sort_buffer_size = 1M
 join_buffer_size = 1M
+character-set-server = utf8mb4
+collation-server = utf8mb4_unicode_ci
 default-time-zone = '+08:00'

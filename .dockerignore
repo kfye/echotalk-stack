@@ -1,0 +1,8 @@
+# nginx 镜像构建上下文为仓库根目录，排除无关内容
+.git
+docs
+README.md
+docker-compose*.yml
+.env
+.env.example
+placeholder

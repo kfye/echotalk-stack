@@ -1,19 +1,20 @@
 # EchoTalk 容器栈 — 单台 2核2G 服务器 / Portainer 管理
 # 服务：Nginx(反代+静态) + MySQL 8 + Redis + Go 占位服务
-# 设计要点：DB/Redis 只走内网不暴露公网；每个容器设内存上限防 OOM。
+# 设计：全部用 build(COPY 进镜像) + 命名卷，运行时无 bind 挂载，
+#       避开 Portainer git stack 的「单文件挂载变目录」坑。
 services:
 
-  # ---- 接入层：反向代理 + 管理端静态托管 ----
+  # ---- 接入层：反向代理 + 管理端静态托管（配置已打进镜像）----
   nginx:
-    image: nginx:1.27-alpine
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    image: echotalk/nginx:latest
+    pull_policy: build        # 重新部署时强制按源码重建（standalone 需显式声明）
     container_name: echotalk-nginx
     restart: unless-stopped
     ports:
       - "80:80"        # HTTPS(443) 待域名备案+证书后开启
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./admin/dist:/usr/share/nginx/html:ro   # Vue 管理端构建产物
     depends_on:
       app:
         condition: service_healthy
@@ -27,6 +28,7 @@ services:
     build:
       context: ./placeholder
     image: echotalk/app-placeholder:latest
+    pull_policy: build        # 重新部署时强制按源码重建
     container_name: echotalk-app
     restart: unless-stopped
     environment:
@@ -50,31 +52,35 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
 
-  # ---- 数据层：MySQL 8（调瘦，仅内网）----
+  # ---- 数据层：MySQL 8（调优全走 command，无挂载；仅内网）----
   mysql:
     image: mysql:8.0
     container_name: echotalk-mysql
     restart: unless-stopped
-    # 只内网可达，绝不映射公网端口（安全组也只放 80/443）
     expose:
-      - "3306"
+      - "3306"          # 仅内网可达，绝不映射公网（安全组只放 80/443）
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       TZ: Asia/Shanghai
-    # 2核2G 调瘦：缓冲池 128M、关 performance_schema、连接数调小
+    # 2核2G 调瘦（防 OOM）
     command:
       - --innodb-buffer-pool-size=128M
       - --performance-schema=OFF
       - --max-connections=50
       - --innodb-flush-log-at-trx-commit=2
+      - --innodb-log-buffer-size=8M
+      - --tmp-table-size=16M
+      - --max-heap-table-size=16M
+      - --sort-buffer-size=1M
+      - --join-buffer-size=1M
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
     volumes:
-      - mysql-data:/var/lib/mysql
-      - ./mysql/conf.d:/etc/mysql/conf.d:ro
+      - mysql-data:/var/lib/mysql      # 命名卷，非 bind 挂载
     networks:
       - echotalk
     healthcheck:
@@ -86,7 +92,7 @@ services:
     mem_limit: 512m
     mem_reservation: 256m
 
-  # ---- 缓存层：Redis（限内存，仅内网）----
+  # ---- 缓存层：Redis（限内存，调优走 command；仅内网）----
   redis:
     image: redis:7.2-alpine
     container_name: echotalk-redis
@@ -104,7 +110,7 @@ services:
       - --appendfsync
       - everysec
     volumes:
-      - redis-data:/data
+      - redis-data:/data               # 命名卷，非 bind 挂载
     networks:
       - echotalk
     healthcheck:
